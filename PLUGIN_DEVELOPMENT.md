@@ -93,7 +93,7 @@ DreamRPG 构建基线：
 
 ## DreamLib 边界与通用逻辑下沉
 
-`DreamLib` 是 DreamRPG 自写插件的唯一通用机制库。新插件只负责自己的领域策略、领域模型、业务配置、领域数据和玩家体验；凡是跨插件可复用的机制，必须优先复用或扩展 `DreamLib`。
+`DreamLib` 是 DreamRPG 自写插件共享运行时，负责装配共享服务和提供 Bukkit 插件入口；通用机制优先复用或扩展 MythicFramework，并由 DreamLib 打包提供给业务插件。新插件只负责自己的领域策略、领域模型、业务配置、领域数据和玩家体验。
 
 依赖方向固定为：
 
@@ -101,13 +101,15 @@ DreamRPG 构建基线：
 DreamRPG 领域插件 / 新业务插件
               ↓
              DreamLib
+                ↓
+         MythicFramework
 ~~~
 
 `DreamLib` 不得依赖任何业务插件，不得理解任何具体业务，不得包含业务插件专属配置键、权限节点、玩家消息、领域事件或数据库表名。
 
-### 必须下沉到 DreamLib 的能力
+### 必须复用共享运行时或 Framework 的能力
 
-能力满足以下任意条件时，不得在新插件中自行实现，应先扩展 `DreamLib`：
+能力满足以下任意条件时，不得在新插件中自行实现；通用实现优先放入 MythicFramework，DreamLib 负责运行时装配和 Dream 专用适配：
 
 - 被两个或以上自写插件使用，或明显会被后续插件复用。
 - 与 Bukkit、Paper、NMS、线程、任务、插件启停、reload 或资源清理相关。
@@ -123,16 +125,16 @@ DreamRPG 领域插件 / 新业务插件
 - 领域配置键、权限节点、玩家消息、数据库表名和业务命令。
 - 组合 `DreamLib` 机制后的领域流程。
 
-### 当前必须优先复用的 DreamLib 能力
+### 当前必须优先复用的共享能力
 
-新增插件先检查下列 API 和实现，禁止绕过它们重新手写同类机制：
+新增插件先检查下列 API 和实现，禁止绕过它们重新手写同类机制。Framework 类型直接使用 `cn.mythicland.framework` 包，由 DreamLib 提供运行时，不再创建同义包装；DreamLib 自身的装配和适配使用 `cn.mythicland.dreamlib` 包。
 
-- 启动与注入：`LibApi`、`PluginBootstrap`、`LibPluginLifecycle`、`ComponentContainer`、`@InjectComponent`、`@ListenerComponent`、`@CommandComponent`、`@ServiceComponent`、`BukkitCommandComponent`。
-- 命令：`CommandRouter`、`Subcommand`、`CommandUsageException`、`VanillaCommandMessages`。
+- 启动与注入：`DreamLibApi`、`PluginBootstrap`、`ManagedLifecycle`、`PluginComponents`、`@InjectComponent`、`@ListenerComponent`、`@CommandBinding`、`@ServiceComponent`。
+- 命令：Framework 的 `BukkitCommandBridge`、`CommandRouteCompiler`、`@CommandRoute`、`CommandContext`、`CommandUsageException`、`VanillaCommandMessages`。
 - 配置与文本：`ConfigSupport`、`LegacyText`、`TemplateRenderer`、`LegacyActionBar`、`YamlMessageBundle`、`TextAnimation`。
-- 任务和玩家加载：`LibPluginLifecycle`、`PlayerLoadingGate`。
+- 任务和玩家加载：`ManagedLifecycle`、`PlayerLoadingGate`。
 - Scoreboard：`ScoreboardService`、`ScoreboardSession`。
-- 菜单：`MenuService`、`MenuView`、`StatefulMenuView`、`PageWindow`。
+- 菜单：Framework 的 `MenuManager`、`InventoryMenu`、`MenuPageLayout`、`PageWindow`；按钮菜单使用 `AbstractMenu`、`@MenuSlot` 和 `MenuButtons`，可编辑库存直接继承 `InventoryMenu`，统一由共享 `MenuManager` 管理。
 - 存储与文件：`StorageService`、`VersionedPlayerSession`、`AtomicFileStore`、`AtomicYamlStore`、`AtomicYamlTransaction`、`SafePathResolver`、`PathService`、`FileTreeOperations`。
 - 数据库与迁移：`DatabaseService`、`SqlDatabase`、`JdbcDatabase`、`SqliteDatabase`、`MigrationRunner`、`MigrationSpec`。
 - 运行时依赖：`LibraryService`、`LibrarySpec`、`LibraryLoadResult`。
@@ -140,18 +142,18 @@ DreamRPG 领域插件 / 新业务插件
 - 外部服务：`PluginLookup`、`VaultEconomyBridge`、`PlayerPointsBridge`、`PlaceholderApiBridge`。
 - NMS 容器动画：`ContainerAnimationService`、`ContainerAnimationHandle`、`ContainerAnimationSpec`。
 
-如果 `DreamLib` 缺少需要的通用机制，先在 `DreamLib` 设计 API、测试和生命周期契约，再回到业务插件实现领域策略。不得通过插件内部 fallback 掩盖 `DreamLib` API 不足。
+如果缺少需要的通用机制，先在 MythicFramework 设计 API、测试和生命周期契约，由 DreamLib 按需装配，再回到业务插件实现领域策略。不得通过插件内部 fallback 掩盖共享 API 不足。
 
 ### 新能力的下沉决策树
 
 实现新能力或维护旧能力前，按以下顺序判断：
 
-1. 搜索 `DreamLib` 的 API、服务、组件和测试，确认没有可复用能力。
-2. 判断问题是 `DreamLib` 机制还是 DreamRPG 领域策略。
-3. 如果是机制，先在 `DreamLib` 设计公共接口、不可变模型、线程契约和生命周期契约。
+1. 搜索 MythicFramework 和 `DreamLib` 的 API、服务、组件和测试，确认没有可复用能力。
+2. 判断问题是共享机制还是 DreamRPG 领域策略。
+3. 如果是机制，先在 MythicFramework 设计公共接口、不可变模型、线程契约和生命周期契约；运行时装配放在 DreamLib。
 4. 如果机制需要业务术语，提取中性的技术术语，把业务含义留在消费插件。
-5. 在 `DreamLib` 先编写正常、边界、非法输入和资源清理测试。
-6. 实现 `DreamLib` 能力并补充英文 Javadoc。
+5. 在对应所属模块验证正常、边界、非法输入和资源清理。
+6. 实现共享能力并补充英文 Javadoc。
 7. 同步迁移所有消费者，删除重复实现。
 8. 检查主线程、异步线程、关闭顺序、任务取消、资源释放和 ClassLoader 生命周期。
 9. 分别构建 `DreamLib` 和所有受影响的插件。
@@ -183,7 +185,7 @@ DreamRPG 新插件、新模块、新公共能力和会改变跨插件契约的�
 2. 明确领域术语、数据所有权、线程边界、生命周期边界和失败状态。
 3. 先设计公开接口、不可变模型、事件和服务注册契约。
 4. 为 API 编写编译测试、正常行为测试、边界测试和失败场景测试。
-5. 如果能力属于通用机制，先在 `DreamLib` 实现并验证；如果属于领域策略，再实现插件领域服务、适配器、持久化、命令和监听器。
+5. 如果能力属于通用机制，优先在 MythicFramework 实现并验证，由 DreamLib 按需装配；如果属于领域策略，再实现插件领域服务、适配器、持久化、命令和监听器。
 6. 最后通过 `PluginBootstrap`、配置、任务和 Paper 行为接入插件生命周期。
 7. 使用 `DreamLib` 和目标插件的独立构建，以及必要的 Paper 烟测验证。
 
@@ -199,7 +201,7 @@ DreamRPG 新插件、新模块、新公共能力和会改变跨插件契约的�
 
 ## 公共 API、模型与服务
 
-- 跨插件服务通过 Bukkit ServicesManager 注册和发现。服务注册、查找和生命周期优先复用 `LibApi` 与 `DreamLib` 的组件机制。
+- 跨插件服务通过 Bukkit ServicesManager 注册和发现。服务注册、查找和生命周期优先复用 `DreamLibApi` 与 `DreamLib` 的组件机制。
 - 对外暴露只读契约，写入操作默认保持领域内部可见。
 - 公开模型优先使用 record 或不可变 final 类。
 - 公共集合返回不可变集合、防御性副本或空集合。
@@ -213,18 +215,17 @@ DreamRPG 新插件、新模块、新公共能力和会改变跨插件契约的�
 
 ## 注入式生命周期与插件入口
 
-DreamRPG 已提供 `DreamLib` 组件扫描、依赖注入和生命周期框架。新插件必须复用该框架，不得在插件入口重新手动组装相同能力。
+DreamRPG 使用 MythicFramework 的组件扫描和依赖注入，由 DreamLib 装配运行时及插件生命周期。新插件必须复用已有能力，不得在入口重新手动组装。
 
 推荐入口职责：
 
-- 使用 `LibApi.require(this)` 获取 DreamLib 服务。
-- 使用 `LibApi.createPluginBootstrap(this, basePackage)` 创建插件 Bootstrap。
-- 调用 enable 和 disable。
-- 处理启动和关闭异常。
+- 继承 `DreamLibManagedPlugin`，在构造器中声明组件包及所需启动顺序。
+- 需要重载时，通过 `bootstrap(componentPackage).reload()` 调用相应组件图。
+- 特殊生命周期需求通过已有扩展点表达。
 
 插件入口不负责手动创建完整业务对象、注册全部监听器、拼接命令树、创建计分板、打开数据库或启动散落任务。
 
-组件通过非私有构造器接收依赖。使用 `@InjectComponent`、`@ListenerComponent`、`@CommandComponent`、`@ServiceComponent` 和 `BukkitCommandComponent`，由 `PluginBootstrap` 统一扫描和生命周期管理。
+组件通过非私有构造器接收依赖。注入和监听器使用 MythicFramework 的 `@InjectComponent`、`@ListenerComponent`；命令使用 Framework 的 `@CommandBinding`、`@CommandRoute`、`@CommandCompleter`，服务使用 `@ServiceComponent`，由 `PluginBootstrap` 统一扫描和生命周期管理。
 
 维护没有注入框架的旧插件时：
 
@@ -255,11 +256,16 @@ DreamRPG 已提供 `DreamLib` 组件扫描、依赖注入和生命周期框架�
 
 ### 配置
 
-- 主配置统一通过 DreamLib 的 `@ConfigComponent`、`ConfigurableComponent`、`ConfigView` 和 `@ConfigValue` 绑定；插件只负责把绑定后的原始快照组装成领域设置并执行跨字段校验。
+- 日常玩法配置统一由 `plugins/DreamRPG-content/` 持有，通过 `DreamLibApi.content()` 的 `ContentWorkspace` 解析路径。读取和保存必须使用同一逻辑文档映射，不再向插件旧目录写入第二份定义；NPC 定义、箱子定义、系统设置和玩家数据库仍由原所属插件管理。
+- 日常玩法按 `common/` 与 `dungeons/<id>/` 内容包组织；包内 `dungeon.yml` 声明 name、order、enabled，停用包不提供资源。MM 原生定义放在所属包的 `items/`、`mobs/`、`skills/`、`droptables/`、`spawners/`，允许多级子目录；刷怪点每文件一个定义，文件名为 `<id>.yml`。全局 `stages.yml` 只排序章节 ID，任务定义在包内 `quests.yml`；读写必须保留源文件归属。固定 MM 适配包直接读取活动源文件，原生刷怪点保存保留源路径并保护待重载的手工修改，不生成副本、发布清单或目录链接。适配工程位于 `plugins/self-written/DreamRPG/tools/mythicmobs-content/`，升级 MM 必须重新验证二进制补丁与 Linux 联调。详细布局见工作区 `CONTENT-PACKS.md`。
+- 新 MM 物品、怪物、技能、掉落表和刷怪点 ID 使用小写英文字母开头，后接小写字母、数字或下划线；按稳定玩法与用途命名，同系列编号固定宽度。同类型 ID 在所有已加载玩法包中唯一，不因分目录重复定义。跨玩法引用保留单一定义，不以显示名或目录名自动改写既有 ID。
+- `/drpg content check` 与 `/drpg content reload` 为独立的内容校验与重载入口。内容重载不重绑数据库、Tab、计分板等系统设置。manifest 文档路径映射在组件生命周期内固定，位置变化需要重启。
+
+- 主配置统一通过 Framework 的 `@ConfigComponent` 和 MythicFramework 的 `ConfigurableComponent`、`ConfigView`、`@ConfigProperty` 绑定；插件只负责把绑定后的原始快照组装成领域设置并执行跨字段校验。
 - 配置组件必须在生命周期组件之前发布完整不可变快照；普通生命周期的 `reload()` 不得再次调用 `ConfigSupport.loadDefault`、`get*` 或自行重读主配置。
-- 列表、枚举、数值范围和非空约束优先声明在 `@ConfigValue`；需要解析 `Duration`、`ZoneId`、路径、动画或策略对象时，在配置组件中保留明确的领域校验。
+- 列表、枚举、数值范围和非空约束优先声明在 `@ConfigProperty`；需要解析 `Duration`、`ZoneId`、路径、动画或策略对象时，在配置组件中保留明确的领域校验。
 - 独立配置文件可以由插件负责安全地定位和加载，再通过 `ConfigSupport.bind` 使用相同的注解绑定器；不得因为文件独立就恢复一套重复的类型读取器。
-- 动态键集合、职业/物品目录和逐世界策略文件不是固定注解模型；它们仍由领域解析器读取，但固定的标量、枚举、列表和开关必须先经过 DreamLib 绑定边界。
+- 动态键集合、职业/物品目录和逐世界策略文件不是固定注解模型；它们仍由领域解析器读取，但固定的标量、枚举、列表和开关必须先经过 Framework 配置绑定边界。
 - reload 只重新读取并发布内存快照，不把非法值或默认值写回用户配置；配置写入只能发生在明确的用户操作或一次性资源初始化中。
 - 当前模板可以补齐当前版本缺失字段，但不得自动迁移旧结构。
 - 未知旧键保留并忽略，除非当前任务明确要求清理。
@@ -302,7 +308,7 @@ DreamRPG 已提供 `DreamLib` 组件扫描、依赖注入和生命周期框架�
 
 ## 包结构与代码组织
 
-- Java 包名使用 `cn.mythicland.<plugin>` 形式。`DreamLib` 使用 `cn.mythicland.lib`，新插件使用自己的小写标识。
+- Java 包名使用 `cn.mythicland.<plugin>` 形式。`DreamLib` 使用 `cn.mythicland.dreamlib`，新插件使用自己的小写标识。
 - 使用职责分层加最小固定包结构，不强迫所有插件创建无意义的空包。
 - 有公开领域契约时使用 api。
 - 有启动和生命周期组件时使用 bootstrap。
@@ -312,6 +318,10 @@ DreamRPG 已提供 `DreamLib` 组件扫描、依赖注入和生命周期框架�
 - 集成适配器隔离第三方 API，核心业务不直接散布反射和版本判断。
 - 文件、配置、数据库、测试和运行时生成物保持职责边界。
 - 不为追求形式统一而增加无意义抽象、空接口、空实现或包装类。
+- 平台无关机制使用 `cn.mythicland.framework.<能力>`；Bukkit 能力使用 `cn.mythicland.framework.bukkit.<能力>`，命令和菜单分别只采用 `bukkit.command`、`bukkit.menu` 中的声明与执行机制。
+- DreamLib 只保留插件入口、共享运行时及服务装配；玩法插件直接使用 Framework 类型，不添加同义注解、菜单包装或执行器。
+- 纯分页位于 `framework.pagination`，导航调度位于 `framework.navigation`；文件路径操作保留在 `framework.path`。
+- 1.12 平台适配在 Framework Bukkit 的 `legacy112` source set 编译，主 source set 保留 1.8 API 基线；NMS 代码使用版本子包隔离。
 
 ## AI 执行任务的工作流
 
@@ -406,7 +416,7 @@ Java 格式化以 IntelliJ IDEA 内置格式为准。构建默认不替代 IDE �
 当注解修饰字段或 record component 时，声明成员另起一行，例如：
 
 ~~~java
-@ConfigValue(
+@ConfigProperty(
         path = "selection.stick-material",
         defaultValue = "STICK",
         nonBlank = true
